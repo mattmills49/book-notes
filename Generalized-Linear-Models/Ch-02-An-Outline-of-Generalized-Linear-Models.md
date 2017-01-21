@@ -157,15 +157,13 @@ by evaluating the derivative at $\hat{\mu}_0$
 \[
 W_{0}^{-1} = \left(\frac{d\eta}{d\mu}\right)_{0}^{2} V_0
 \]
-. $V_0$ is the variance function evaluated at $\hat{\mu}_0$. 
+where $V_0$ is the variance function evaluated at $\hat{\mu}_0$. 
 4. Regress $z_0$ on the variables with the weights to find $\beta_1$.
 5. Repeat until changes converge. 
 
 ### R code for algorithms
 
 #### Iteratively Reweighted Least Squares
-
-
 
 
 
