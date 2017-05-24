@@ -69,17 +69,57 @@
 #' and set to 0 we get:
 #' 
 #' \[
-#' \sum_{i}x_{ij}(y_i - \hat{\mu_i}) = 0 for j = 1,...,p
+#' \sum_{i}x_{ij}(y_i - \hat{\mu}_i) = 0 for j = 1,...,p
 #' \]
 #' 
-#' Basically we are saying the linear combinations of $x$s and $Y$ is equal to
-#' the linear combination of $x$s and the fitted values, $\mu$. Somehow this 
-#' means that the vector of residuals, $y_i - \hat{\mu_i}$, is orthogonal to 
+#' Basically we are saying the linear combinations of $x$'s and $Y$ is equal to
+#' the linear combination of $x$'s and the fitted values, $\mu$. Somehow this 
+#' means that the vector of residuals, $y_i - \hat{\mu}_i$, is orthogonal to 
 #' the columns of the model matrix $X$, which means:
 #' 
 #' \[
 #' \mathbf{X}^T(\mathbf{y} - \mathbf{\hat{\mu}})
 #' \]
 #'
+#' #### Geometric Interpretation
 #' 
+#' The fitted vector is the orthogonal projection of **y** on the space **x**.
 #' 
+#' ### 3.8 Algorithms for Least Squares
+#' 
+#' To fit a model we need to minimize the quadratic form 
+#' 
+#' \[
+#' (\mathbf{y} - \mathbf{X\beta})^{T}(\mathbf{y} - \mathbf{X\beta})
+#' \]
+#' 
+#' with respect to $\beta$. When we take the derivative and set equal to 0 we
+#' get the *normal equations* 
+#' 
+#' \[
+#' (\mathbf{X}^{T}\mathbf{X})\mathbf{\hat{\beta}} = \mathbf{X}^{T}\mathbf{y}
+#' \]
+#' 
+#' To solve for $\mathbf{\beta}$ we multiply both sides by the inverse of the 
+#' Information Matrix. We can do this numerically or approximately with some
+#' algorithms I won't go in to.
+#' 
+#' ### 3.9 Selection of Covariates
+#' 
+#' The book is a little old so this advice may be out of data. 
+#' 
+#' Most measures of model fit try to minimize
+#' 
+#' \[
+#' Q = D + \alpha q \phi
+#' \]
+#' 
+#' Where $D$ is the Deviance Function, $q$ is the number of parameters in the 
+#' model, $\phi$ is the dispersion parameter, and $\alpha$ is either a constant
+#' or a function of $n$. The 2nd term in the equation attempts to penalize 
+#' unnecessary variables. 
+#' 
+#' The AIC and Mallows CP measures set $\alpha = 2$. 
+#' 
+#' The then discuss a way to find best subsets but these have basically
+#' all been proven to be poo-poo. 

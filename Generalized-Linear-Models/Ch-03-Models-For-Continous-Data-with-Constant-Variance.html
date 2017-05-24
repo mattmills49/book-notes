@@ -239,17 +239,60 @@ We know </p>
 and set to 0 we get:</p>
 
 <p>\[
-\sum_{i}x_{ij}(y_i - \hat{\mu_i}) = 0 for j = 1,&hellip;,p
+\sum_{i}x_{ij}(y_i - \hat{\mu}_i) = 0 for j = 1,&hellip;,p
 \]</p>
 
-<p>Basically we are saying the linear combinations of $x$s and \(Y\) is equal to
-the linear combination of $x$s and the fitted values, \(\mu\). Somehow this 
-means that the vector of residuals, \(y_i - \hat{\mu_i}\), is orthogonal to 
+<p>Basically we are saying the linear combinations of \(x\)&#39;s and \(Y\) is equal to
+the linear combination of \(x\)&#39;s and the fitted values, \(\mu\). Somehow this 
+means that the vector of residuals, \(y_i - \hat{\mu}_i\), is orthogonal to 
 the columns of the model matrix \(X\), which means:</p>
 
 <p>\[
 \mathbf{X}^T(\mathbf{y} - \mathbf{\hat{\mu}})
 \]</p>
+
+<h4>Geometric Interpretation</h4>
+
+<p>The fitted vector is the orthogonal projection of <strong>y</strong> on the space <strong>x</strong>.</p>
+
+<h3>3.8 Algorithms for Least Squares</h3>
+
+<p>To fit a model we need to minimize the quadratic form </p>
+
+<p>\[
+(\mathbf{y} - \mathbf{X\beta})^{T}(\mathbf{y} - \mathbf{X\beta})
+\]</p>
+
+<p>with respect to \(\beta\). When we take the derivative and set equal to 0 we
+get the <em>normal equations</em> </p>
+
+<p>\[
+(\mathbf{X}^{T}\mathbf{X})\mathbf{\hat{\beta}} = \mathbf{X}^{T}\mathbf{y}
+\]</p>
+
+<p>To solve for \(\mathbf{\beta}\) we multiply both sides by the inverse of the 
+Information Matrix. We can do this numerically or approximately with some
+algorithms I won&#39;t go in to.</p>
+
+<h3>3.9 Selection of Covariates</h3>
+
+<p>The book is a little old so this advice may be out of data. </p>
+
+<p>Most measures of model fit try to minimize</p>
+
+<p>\[
+Q = D + \alpha q \phi
+\]</p>
+
+<p>Where \(D\) is the Deviance Function, \(q\) is the number of parameters in the 
+model, \(\phi\) is the dispersion parameter, and \(\alpha\) is either a constant
+or a function of \(n\). The 2nd term in the equation attempts to penalize 
+unnecessary variables. </p>
+
+<p>The AIC and Mallows CP measures set \(\alpha = 2\). </p>
+
+<p>The then discuss a way to find best subsets but these have basically
+all been proven to be poo-poo. </p>
 
 </body>
 
