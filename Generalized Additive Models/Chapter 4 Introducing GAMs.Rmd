@@ -195,10 +195,10 @@ Well that is certianly more smooth than the original functions. And now we can
 throw this all into a function and visualize a some different lambda values:
 
 ```{r}
-prs.fit <- function(y, x, xj, lambda){
+prs.fit <- function(y, x, xj, sp){
   X <- tf.X(x, xj)
   D <- diff(diag(length(xj)), differences = 2)
-  X <- rbind(X, sqrt(lambda) * D)
+  X <- rbind(X, sqrt(sp) * D)
   y <- c(y, rep(0, nrow(D)))
   lm(y ~ X - 1)
 }
