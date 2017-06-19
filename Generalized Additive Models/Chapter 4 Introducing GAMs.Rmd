@@ -1,0 +1,262 @@
+---
+title: "Chapter 4: Introducing GAMs"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width = 5, fig.height = 3.2, dpi = 200)
+```
+
+## 4.2 Univariate Smoothing
+
+```{r}
+library(gamair)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+data(engine)
+head(engine)
+ggplot(aes(x = size, y = wear), data = engine) +
+  geom_point() + 
+  theme_bw() +
+  xlab("Engine Capacity") + 
+  ylab("Wear Index")
+```
+
+We are now going to calculate the piecewise linear basis, $b_{j}(x)$, which as 
+far as I can tell is just a linear interpolation between the two knots that 
+surround a point. 
+
+First we are going to define the full function that takes in an array of x
+values and a sequence of nots and return the model matrix for the piecewise
+linear model. (Note this is the opposite order of how the book works and I've
+changed some variable names to help with readability.)
+
+```{r}
+tf.X <- function(x, xj){
+  ## Tent function basis matrix given data x
+  ## and knot sequence xj
+  num_knots <- length(xj)
+  num_data <- length(x)
+  model_matrix <- matrix(NA, nrow = num_data, ncol = num_knots)
+  for(tent in seq_len(num_knots)){
+    model_matrix[, tent] <- tf(x, xj, tent)
+  }
+  return(model_matrix)
+}
+```
+
+Now we need to define the helper function `tf` that will generate the tent
+functions ($b_{j}(x)$) from set defined by knots `xj`.
+
+```{r}
+tf <- function(x, xj, j){
+  dj <- xj * 0
+  dj[j] <- 1
+  approx(xj, dj, x)$y ## Return a list of points which linearly interpolate given data points
+}
+```
+
+Let's work through this line by line
+
+```{r}
+## Generate Knots
+sj <- seq(min(engine$size), max(engine$size), length = 6)
+print(sj)
+x <- engine$size
+xj <- sj
+num_knots <- length(xj)
+num_data <- length(x)
+model_matrix <- matrix(NA, nrow = num_data, ncol = num_knots)
+tent <- 2
+model_matrix[, tent] <- tf(x, xj, tent)
+model_matrix[, tent]
+```
+
+So the 2nd tent function Lets look
+at what actually goes on in the `tf` function. 
+
+```{r}
+dj <- xj * 0
+dj[tent] <- 1
+cbind(x, tent_function = approx(xj, dj, x)$y)
+```
+
+So the tent function for the 2nd knot is 0 until the data get between the first
+(`r xj[1]`) and third (`r xj[3]`) knot and then just rises and falls as they get
+closer to the 2nd knot. Let's get them all now.
+
+```{r}
+X <- tf.X(engine$size, sj)
+head(X)
+data.frame(cbind(size = engine$size, X)) %>%
+  gather(tent, value, -size) %>% 
+  ggplot(aes(x = size, y = value)) + 
+  geom_line(aes(color = tent), size = 2) +
+  geom_point(aes(x = size, y = wear), data = engine) +
+  theme_bw()
+```
+
+And now that we have our tent functions we can put them into a model to use them
+to predict wear. 
+
+```{r}
+b <- lm(engine$wear ~ X - 1)
+bs <- coef(b)
+X_weighted <- X
+for(i in seq_len(ncol(X))) X_weighted[, i] <- X[, i] * bs[i]
+pred_data <- seq(min(engine$size), max(engine$size), length = 200)
+pred_matrix <- tf.X(pred_data, sj)
+pred_wear <- drop(pred_matrix %*% coef(b))
+data_frame(size = pred_data, wear = pred_wear) %>%
+  ggplot(aes(x = size, y = wear)) +
+  geom_line(size = 2) + 
+  geom_point(aes(x = size, y = wear), data = engine, color = "blue") +
+  geom_line(aes(x = size, y = value, color = tent), size = 1, data = data.frame(cbind(size = engine$size, X_weighted)) %>% gather(tent, value, -size)) + 
+  theme_bw() +
+  xlab("Engine Capacity") + 
+  ylab("Wear Index") + 
+  ggtitle("Predictions for Univariate Smoothing", "And Weighted Basis Function Values")
+```
+
+The number of basis functions (6) was basically arbitrary, what if we re-ran the
+same code but now with different number of knots?
+
+```{r, echo = F}
+fit_piecewise_linear_smooth <- function(x_data = engine$size, y_data = engine$wear, num_knots = 6){
+  sj <- seq(min(x_data), max(x_data), length = num_knots)
+  X <- tf.X(x_data, sj)
+  b <- lm(y_data ~ X - 1)
+  bs <- coef(b)
+  X_weighted <- X
+  for(i in seq_len(ncol(X))) X_weighted[, i] <- X[, i] * bs[i]
+  pred_data <- seq(min(x_data), max(x_data), length = 200)
+  pred_matrix <- tf.X(pred_data, sj)
+  pred_wear <- drop(pred_matrix %*% coef(b))
+  data_frame(size = pred_data, wear = pred_wear) %>%
+    ggplot(aes(x = size, y = wear)) +
+    geom_line(size = 2) + 
+    geom_point(aes(x = x, y = y), data = data_frame(x = x_data, y = y_data), color = "blue") +
+    geom_line(aes(x = size, y = value, color = tent), size = 1, data = data.frame(cbind(size = x_data, X_weighted)) %>% gather(tent, value, -size)) + 
+    theme_bw() +
+    ggtitle(sprintf("%i Knots", num_knots)) +
+    scale_color_discrete(guide = F)
+}
+```
+
+```{r}
+p1 <- fit_piecewise_linear_smooth(num_knots = 3)
+p2 <- fit_piecewise_linear_smooth(num_knots = 5)
+p3 <- fit_piecewise_linear_smooth(num_knots = 7)
+p4 <- fit_piecewise_linear_smooth(num_knots = 9)
+modeler::multiplot(p1, p3, p2, p4, cols = 2)
+```
+
+So as we increase the knots the function is able to fit the data better but also 
+starts to experience some weird behavior and is most likely over-fitting. 
+
+### Controlling Smoothness by Penalizing Wiggliness
+
+We want to add a penalty term to our optimization function which basically means
+appending a penalized diagonal matrix to our data matrix. 
+
+Let's start with $\lambda = 2$ and see how that changes things
+
+```{r}
+sj <- seq(min(engine$size), max(engine$size), length = 20)
+X <- tf.X(engine$size, sj)
+D <- diff(diag(length(sj)), differences = 2)
+D[1:6, 1:6]
+X_aug <- rbind(X, sqrt(2) * D)
+y_aug <- c(engine$wear, rep(0, nrow(D)))
+dim(X_aug)
+length(y_aug)
+penalized_fit <- lm(y_aug ~ X_aug - 1)
+
+bs <- coef(penalized_fit)
+X_weighted <- X_aug
+for(i in seq_len(ncol(X_aug))) X_weighted[, i] <- X_aug[, i] * bs[i]
+
+pred_matrix <- tf.X(pred_data, sj)
+pred_wear <- drop(pred_matrix %*% coef(penalized_fit))
+data_frame(size = pred_data, wear = pred_wear) %>%
+  ggplot(aes(x = size, y = wear)) +
+  geom_line(size = 2) +
+  geom_point(aes(x = size, y = wear), data = engine, color = "blue") +
+  geom_line(aes(x = size, y = value, color = tent), size = 1, data = data.frame(cbind(size = engine$size, X_weighted[1:19, ])) %>% gather(tent, value, -size)) + 
+  theme_bw() +
+  xlab("Engine Capacity") + 
+  ylab("Wear Index") + 
+  ggtitle("Predictions for Penalized Smoothing", "lambda = 2") +
+  scale_color_discrete(guide = F)
+```
+
+Well that is certianly more smooth than the original functions. And now we can
+throw this all into a function and visualize a some different lambda values:
+
+```{r}
+prs.fit <- function(y, x, xj, lambda){
+  X <- tf.X(x, xj)
+  D <- diff(diag(length(xj)), differences = 2)
+  X <- rbind(X, sqrt(lambda) * D)
+  y <- c(y, rep(0, nrow(D)))
+  lm(y ~ X - 1)
+}
+```
+
+```{r, echo = F}
+prs.fit_plot <- function(x_data = engine$size, y_data = engine$wear, num_knots = 20, lambda){
+  sj <- seq(min(x_data), max(x_data), length = num_knots)
+  b <- prs.fit(y = y_data, x = x_data, xj = sj, sp = lambda)
+  pred_data <- seq(min(x_data), max(x_data), length = 200)
+  pred_matrix <- tf.X(pred_data, sj)
+  pred_wear <- drop(pred_matrix %*% coef(b))
+  data_frame(size = pred_data, wear = pred_wear) %>%
+    ggplot(aes(x = size, y = wear)) +
+    geom_line(size = 2) + 
+    geom_point(aes(x = x, y = y), data = data_frame(x = x_data, y = y_data), color = "blue") +
+    theme_bw() +
+    ggtitle(sprintf("lambda = %f", lambda)) +
+    scale_color_discrete(guide = F)
+}
+```
+
+```{r}
+p1 <- prs.fit_plot(lambda = .08)
+p2 <- prs.fit_plot(lambda = 1)
+p3 <- prs.fit_plot(lambda = 18)
+p4 <- prs.fit_plot(lambda = 150)
+modeler::multiplot(p1, p3, p2, p4, cols = 2)
+```
+
+The natrual question is how do we know which value of lambda generalizes the 
+best? We can calculate the *generalized cross validation score* and find out.
+
+\[
+V_g = \frac{n * \sum_{i=1}^{n}(y_i - \hat{f_i})^2}{[n - tr(A)]^2}
+\]
+
+Where $A$ is the hat matrix. 
+
+Lets find that for a bunch of lambda values
+
+```{r}
+rho <- seq(-9, 11, length = 90)
+n <- nrow(engine)
+V <- rep(NA, 90)
+for(i in seq_along(V)){
+  b <- prs.fit(y = engine$wear, x = engine$size, xj = sj, sp = exp(rho[i]))
+  trF <- sum(influence(b)$hat[1:n])
+  rss <- sum((engine$wear - fitted(b)[1:n])^2)
+  V[i] <- n * rss / (n - trF)^2
+}
+
+ggplot(aes(x = r, y = v), data = data_frame(r = rho, v = V)) + 
+  geom_line() + 
+  xlab("log(lambda)") +
+  ylab("Generalized Cross Validation Score") +
+  theme_bw()
+```
+
+So the best value of lambda, by generalized cross validation score, is `r round(exp(rho[which.min(V)]), 2)`
+
