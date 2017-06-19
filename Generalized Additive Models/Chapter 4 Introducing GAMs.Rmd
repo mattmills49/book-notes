@@ -13,7 +13,7 @@ knitr::opts_chunk$set(fig.width = 5, fig.height = 3.2, dpi = 200)
 library(gamair)
 library(ggplot2)
 library(tidyr)
-library(dplyr)
+suppressPackageStartupMessages(library(dplyr))
 data(engine)
 head(engine)
 ggplot(aes(x = size, y = wear), data = engine) +
@@ -28,7 +28,7 @@ far as I can tell is just a linear interpolation between the two knots that
 surround a point. 
 
 First we are going to define the full function that takes in an array of x
-values and a sequence of nots and return the model matrix for the piecewise
+values and a sequence of knots and return the model matrix for the piecewise
 linear model. (Note this is the opposite order of how the book works and I've
 changed some variable names to help with readability.)
 
@@ -47,7 +47,7 @@ tf.X <- function(x, xj){
 ```
 
 Now we need to define the helper function `tf` that will generate the tent
-functions ($b_{j}(x)$) from set defined by knots `xj`.
+functions, $b_{j}(x)$, from set defined by knots `xj`.
 
 ```{r}
 tf <- function(x, xj, j){
@@ -73,8 +73,7 @@ model_matrix[, tent] <- tf(x, xj, tent)
 model_matrix[, tent]
 ```
 
-So the 2nd tent function Lets look
-at what actually goes on in the `tf` function. 
+Lets look at what actually goes on in the `tf` function. 
 
 ```{r}
 dj <- xj * 0
@@ -157,8 +156,35 @@ starts to experience some weird behavior and is most likely over-fitting.
 
 ### Controlling Smoothness by Penalizing Wiggliness
 
-We want to add a penalty term to our optimization function which basically means
-appending a penalized diagonal matrix to our data matrix. 
+For basic linear models we are attempting to minimize the fit according to mean 
+square error
+
+\[
+\|\mathbf{y - X\beta}\|^2
+\]
+
+But we can add in a penalty term to our optimization
+function that penalizes large coefficient values. For our tent function splines
+we get
+
+\[
+\mathbf{\beta^TS\beta}
+\]
+
+where $S$ is
+
+\[
+\mathbf{S} = \mathbf{D^TD}
+\]
+
+We add this by simply appending a penalized diagonal matrix to our data matrix. 
+
+\[
+\|\mathbf{y - X\beta}\|^2 + \lambda\mathbf{\beta^TS\beta} = \|\begin{bmatrix} \mathbf{y} \\ 0 \end{bmatrix} - \begin{bmatrix} \mathbf{X} \\ \sqrt{\lambda}\mathbf{D} \end{bmatrix}\mathbf{\beta}\|^2
+\]
+
+So for each $\beta$ we are basically saying that it should be pulled towards
+zero.
 
 Let's start with $\lambda = 2$ and see how that changes things
 
@@ -192,7 +218,7 @@ data_frame(size = pred_data, wear = pred_wear) %>%
 ```
 
 Well that is certianly more smooth than the original functions. And now we can
-throw this all into a function and visualize a some different lambda values:
+throw this all into a function and visualize some different lambda values:
 
 ```{r}
 prs.fit <- function(y, x, xj, sp){
@@ -260,3 +286,56 @@ ggplot(aes(x = r, y = v), data = data_frame(r = rho, v = V)) +
 
 So the best value of lambda, by generalized cross validation score, is `r round(exp(rho[which.min(V)]), 2)`
 
+### Bayesian Approach
+
+Basically instead of explicitly minimizing the size of the coefficients we set
+an equivalent prior on the $\beta$'s and fit the model using the mixed effects
+model specification we used earlier. 
+
+```{r, echo = F}
+llm <- function(theta, X, Z, y){
+  sigma.b <- exp(theta[1])
+  sigma <- exp(theta[2])
+  n <- length(y)
+  pr <- ncol(Z)
+  pf <- ncol(X)
+  X1 <- cbind(X, Z)
+  ipsi <- c(rep(0, pf), rep(1/sigma.b^2, pr))
+  b1 <- solve(crossprod(X1)/sigma^2 + diag(ipsi), t(X1) %*% y/sigma^2)
+  ldet <- sum(log(diag(chol(crossprod(Z)/sigma^2 + diag(ipsi[-(1:pf)])))))
+  l <- (-sum((y-X1%*%b1)^2)/sigma^2 - sum(b1^2*ipsi) - n*log(sigma^2) - pr*log(sigma.b^2) - 2*ldet - n*log(2*pi)) / 2
+  attr(l, "b") <- as.numeric(b1)
+  -l
+}
+```
+
+```{r}
+X0 <- tf.X(engine$size, sj)
+D <- rbind(0, 0, diff(diag(20), differences = 2))
+diag(D) <- 1
+X <- t(backsolve(t(D), t(X0)))
+Z <- X[, -c(1, 2)]
+X <- X[, 1:2]
+m <- optim(c(0, 0), llm, method = "BFGS", X = X, Z = Z, y = engine$wear)
+b <- attr(llm(m$par, X, Z, engine$wear), "b")
+
+X_pred <- t(backsolve(t(D), t(pred_matrix)))
+pred_wear <- drop(X_pred %*% b)
+  
+library(nlme)
+g <- factor(rep(1, nrow(X)))
+m <- lme(wear ~ X - 1, random = list(g = pdIdent(~ Z - 1)), data = engine)
+pred_wear2 <- drop(X_pred %*% as.numeric(coef(m)))
+
+data_frame(size = pred_data, MLE = pred_wear, REML = pred_wear2) %>%
+  gather(method, predictions, -size) %>%
+  ggplot(aes(x = size, y = predictions)) +
+  geom_line(aes(color = method), size = 2) +
+  geom_point(aes(x = size, y = wear), data = engine, color = "blue") +
+  theme_bw() +
+  xlab("Engine Capacity") + 
+  ylab("Wear Index") + 
+  ggtitle("Bayesian Modeling Using Mixed Effects Structure")
+
+
+```
