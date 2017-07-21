@@ -1,0 +1,228 @@
+---
+title: "Survival Analysis Notes"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Cox Proportional Hazards Model
+
+We observe event times along with covariates which may help to predict the event
+times. We define a *hazard function*, $h(t)$, which gives the probability per
+unit time of the event occuring at $t$, given that it has not already occured.
+The Cox model attempts to measure the effects of the covariates on the hazard as
+opposed to measuring $h(t)$ directly.
+
+The model for the $i^{th}$ subject is
+
+\[
+h_{i}(t) = h_{o}(t)exp(\mathbf{X}_{i}(t)\beta)
+\]
+
+$h_{o}(t)$ is the baseline hazard so each subject's baseline hazard gets
+modified by their coefficient values.
+
+One thing to note is that the coefficient values are only estimated when an
+event occurs. Not 100% on why this is. 
+
+The Probability that the $i^{th}$ subject expired at $t_{i}$ is (if $R(i)$
+is the set of all subjects at risk at time $t$)
+
+\[
+exp(\mathbf{X}_{i}\beta) / \sum_{j \in{R(i)}} exp(\mathbf{X}_{j}\beta)
+\]
+
+So the liklihood becomes
+
+\[
+\prod_{i} exp(\mathbf{X}_{i}\beta) / \sum_{j \in{R(i)}} exp(\mathbf{X}_{j}\beta)
+\]
+
+If subjectes leave the study before their event occurs (or if the study ends
+before they do) then they still count in $R(i)$ (The denominator) but don't
+exist in the numerator. This is called Right Censoring. 
+
+Because we are not estimating $h_{o}$ (it cancels out of the above equations)
+this is called the *partial liklihood*. 
+
+### Cumulative Hazard and Survival Functions
+
+The probability of surviving until time $t$ is called the *survival function*,
+$S(t)$. If $H(t) = \int_{0}^{t}h(x)dx$ then $S(t) = exp(-H(t))$. The baseline
+hazard can then be given as
+
+\[
+\hat{H}_{o}(t) = \sum_{t_{j} \leq t}exp(\hat{\alpha}_{j})
+\]
+
+where $\alpha_{i}$ is the intercept term for the $i^{th}$ time. 
+
+Another way to think about this is the following equation:
+
+\[
+exp(\alpha_{j}) = \int_{t_{j-1}^{+}}^{t_{j}}{h_{o}(x)dx}
+\]
+
+Which basically says that the intercept at time $j$ is is the baseline hazard
+function between the previous event and the current one. For a subject specific
+hazard, $\hat{H}(t)$, you just add the subjects covariates to the intercept. 
+
+The useful residuals are just $d_{i} - \hat{H}_{i}$
+
+### Example
+
+Fit a model using the `bone` data set; `t` is the time, `d` is a binary indicator 
+where 1 is death and 0 is censored, and `trt` is a factor with levels `allo` and
+`auto`. 
+
+```{r, echo = F}
+library(gamair)
+data(bone)
+knitr::kable(head(bone))
+```
+
+We are going to use the approach in the book of creating a record for every
+event time a subject is alive for. 
+
+```{r}
+## order by t
+bone$id <- 1:nrow(bone)
+bone_ordered <- bone[order(bone$t), ]
+## event times
+et <- unique(bone_ordered$t[bone_ordered$d == 1])
+## Starts of risk sets
+es <- match(et, bone_ordered$t)
+n <- nrow(bone_ordered)
+# Times for risk sets
+t <- rep(et, 1 + n - es)
+print(et)
+print(1 + n - es)
+str(t)
+st <- cbind(0,
+            bone_ordered[unlist(apply(matrix(es), 1, function(x, n) x:n, n = n)),])
+## Signal Events
+st[(st$t == t) & (st$d != 0), 1] <- 1
+## Reset Event Time to risk set time
+st$t <- t
+names(st)[1] <- "z"
+
+knitr::kable(head(st))
+pb <- st
+pb$tf <- factor(pb$t)
+bone_gam <- glm(z ~ tf + trt - 1, poisson, pb)
+```
+
+`tf` is first so it is a contrast free term, so we estimate a seperate $a_{j}$
+for each event.
+
+```{r}
+cum_hazard <- tapply(fitted(bone_gam), pb$id, sum)
+## Martingale Residuals
+m_resid <- bone$d - cum_hazard
+summary(bone_gam)
+drop1(bone_gam, test = "Chisq")
+```
+
+So the `auto` treatment is not significant in the model. A Positive value for
+the `trtauto` variable means that the hazard is estimated to be higher for the
+`auto` group. 
+
+```{r}
+library(dplyr)
+library(ggplot2)
+base_plot_df <- data_frame(te = sort(unique(bone$t[bone$d == 1])),
+                           tf = factor(te),
+                           trt = bone$trt[1]) %>%
+  bind_rows(data_frame(te = sort(unique(bone$t[bone$d == 1])),
+                           tf = factor(te),
+                           trt = bone$trt[20]))
+
+base_plot_df <- base_plot_df %>%
+  mutate(raw_preds = as.numeric(predict(bone_gam, base_plot_df)),
+         cum_hazard = cumsum(exp(raw_preds)),
+         survive = exp(-cum_hazard))
+
+X <- model.matrix(~tf + trt - 1, base_plot_df)
+J <- apply(exp(base_plot_df$raw_preds) * X, 2, cumsum)
+se_raw <- diag(J %*% vcov(bone_gam) %*% t(J))^.5
+
+base_plot_df <- base_plot_df %>%
+  mutate(se = exp(-cum_hazard + se_raw),
+         se_minus = exp(-cum_hazard - se_raw))
+
+ggplot(aes(x = te, y = survive, color = trt), data = base_plot_df) + 
+  geom_step(size = 2) +
+  geom_step(aes(y = se), linetype = "dashed") +
+  geom_step(aes(y = se_minus), linetype = "dashed") +
+  xlab("Time\n(days)") +
+  ylab("Survival Function\nS(t)") +
+  ggtitle("Survival Function for Allo Treatment", "Dashed Line is +/- 1 SE") +
+  scale_y_continuous(breaks = seq(0, 1, by = .2), limits = c(0, 1)) +
+  scale_color_discrete(name = "Treatment") +
+  theme(legend.position = "top") +
+  theme_bw()
+```
+
+## Survival Analysis with MGCV
+
+We have data for drug trials. `pbc` contains baseline measures for each patient
+and `pbcseq` contains some time-varying values. 
+
+```{r, echo = F}
+library(survival)
+library(mgcv)
+data(pbc)
+knitr::kable(head(pbc))
+knitr::kable(head(pbcseq))
+```
+
+The disease takes 4 `stage` values, with 1 being subtle damage and 4 is 
+cirrhosis. The weights vector provides the censoring information (0 for
+censoring, 1 for event)
+
+```{r, fig.width=8,fig.height=6}
+pbc$status1 <- as.numeric(pbc$status == 2)
+pbc$stage <- factor(pbc$stage)
+
+pbc_gam <- gam(time ~ trt + sex + s(sqrt(protime)) + s(platelet) + s(age) + s(bili) + s(albumin),
+          weights = status1,
+          family = cox.ph,
+          data = pbc)
+
+anova(pbc_gam)
+```
+
+So the treatment is not significant
+
+```{r}
+plot(pbc_gam, pages = 1); plot(pbc_gam$linear.predictors, residuals(pbc_gam))
+```
+
+The wedge of points on the residual plot is from the censored observations and
+is expected in survival analysis residual plots. 
+
+```{r}
+np <- 300
+newd <- data.frame(matrix(0, np, 0))
+for(n in names(pbc)) newd[[n]] <- rep(pbc[[n]][25], np)
+newd$time <- seq(0, 4500, length = np)
+fv <- predict(pbc_gam, newdata = newd, type = "response", se = T)
+newd$fit <- fv$fit
+newd$se_fit <- fv$se.fit
+newd$se <- with(newd, se_fit / fit)
+newd$se_pred <- with(newd, exp(log(fit) + se))
+newd$se_pred_minus <- with(newd, exp(log(fit) - se))
+
+ggplot(aes(x = time, y = fit), data = newd) + 
+  geom_step() +
+  geom_step(aes(y = se_pred), linetype = "dashed") +
+  geom_step(aes(y = se_pred_minus), linetype = "dashed") +
+  xlab("Time") +
+  ylab("Survival Function\nS(t)") +
+  ggtitle("Predicted Survival Function for Patient 25") +
+  theme_bw()
+```
+
+
