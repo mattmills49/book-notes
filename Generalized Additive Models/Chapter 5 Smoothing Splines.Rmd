@@ -1,0 +1,156 @@
+---
+title: "Chapter 5: Splines"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width = 5, fig.height = 3.2, dpi = 200)
+```
+
+## 5.1 Smoothing Splines
+
+### Natural Cubic Splines
+
+If we order our points in increasing value a natural cubic spline is a function 
+made up of sections of cubic polynomials linking each successive pair of points.
+Of all the functions that are continous and interpolate the points the
+"smoothest" minimizes $\int_{x_{1}}^{x_{n}}f''(x)^{2}dx$.
+
+### Cubic Smoothing Splines
+
+Because most data is noisy and you don't have a full grasp of the
+data-generating mechanism you usually want to smooth the data rather than
+interpolate the points. So instead of fixing $g(x_i) = y_i$ we set them as
+parameters and attempt to minimize 
+
+\[
+\sum_{i=1}^{n}(y_{i} - g(x_i))^2 + \lambda\int{g''(x)dx}
+\]
+
+with $\lambda$ as the tuning parameter. We call $g(x)$ a *smoothing spline*. 
+
+While these are ideal smoothers (smoothing function that minimizes error) they have
+as many free parameters as there are data so can be problematic to estimate.
+Also because we are smoothing the function anyway we almost certainly won't need
+all n parameters.
+
+## 5.2 Penalized Regression Splines
+
+A Regression spline constructs a spline basis and then uses that basis to 
+model the original data set. 
+
+## 5.3 Some One-Dimensional Smoothers
+
+### Cubic Splines
+
+Already talked about these. If I get adventurous I'll try to fit one manually
+
+From `mgcv` these can be called with `s(x, bs = "cr")`
+
+### Cyclic splines
+
+These match the outermost knots so that the smooth function is equal there. 
+Think of modeling smooth effects throughout the year, you wouldn't want there to
+be a discontinuity at the end of the year.
+
+### B-splines
+
+A B-Spline (Basis Spline) are only non-zero between m + 3 adjacent knots (m + 1
+is the order of the basis, so for cubic splines m = 2 and a B-spline would be
+non-zero for the nearest 5 knots). This makes them stable to compute. We can
+define them recursively by saying any m order spline is a weighted sum of lower
+order splines where the weights are defined by how close the x-values are to
+the series of knots. Wikipedia says:
+
+> (the first) ramps from zero to one as x goes from t_{i} to t_{i+k} and (the second)
+ramps from one to zero as x goes from t_{i+1} to t_{i+k+1}.
+
+The final stage of recursion is just a binary indicating
+which knot span x is in. 
+
+So if we want a cubic B-spline with 6 knots we actually need to define 10 knots; 6
+for the locations, 2 for the ends, and 2 for the cubic order. 
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+x <- 1:100 + rnorm(100)
+k <- seq(0, 100, length.out = 10)
+
+print(x)
+print(k)
+
+bspline <- function(x, k, i, m = 2){
+  ## Evaluate ith B-spline basis function of order m at the
+  ## values in x, given knot locations in k
+  if(m == -1){
+    res <- as.numeric(x < k[i + 1] & x >= k[i])
+  } else {
+    z0 <- (x - k[i]) / (k[i + m + 2] - k[i + 1])
+    z1 <- (k[i + m + 2] - x) / (k[i + m + 2] - k[i + 1])
+    res <- z0 * bspline(x, k, i, m - 1) + z1 * bspline(x, k, i + 1, m - 1)
+  }
+  return(res)
+}
+
+
+spline_basis <- vapply(1:6, function(i, x_ = x, k_ = k) bspline(x = x_, k = k_, i = i), numeric(100))
+spline_basis_df <- data.frame(spline_basis, stringsAsFactors = F)
+names(spline_basis_df) <- as.character(seq_len(ncol(spline_basis)))
+spline_basis_df$X <- x
+  
+spline_basis_df %>%
+  gather(Function, Value, -X) %>%
+  ggplot(aes(x = X, y = Value, color = Function)) + 
+  geom_line(size = 2) +
+  geom_vline(aes(xintercept = loc), data = data_frame(loc = k), linetype = "dashed") +
+  ggtitle("B-Spline Representation", "dashed lines are knot locations") +
+  theme_bw() +
+  xlab("Original X Value") +
+  ylab("Basis Transformation Value")
+```
+
+So as you can see the outside 2 knots on both sides don't actual have full
+coverage, which is why we need to put knot locations outside the range of our
+data. We would then use this new basis as the variables in our regression model. We
+would then use these transformed values as inputs for our regression model. 
+
+```{r}
+knitr::kable(head(spline_basis_df), align = "c")
+```
+
+### P-Splines
+
+P-splines are low rank smoothers using a B-spline basis, but with a *difference
+penalty* applied to the parameters to control wiggliness. This means we are 
+penalizing the squared differences between adjacent $\beta_i$ values. We can 
+represent this penalty as 
+
+\[
+\sum_{i=1}^{k-1}(\beta_{i+1} - \beta_i)^2 = \mathbf{\beta^TP^TP\beta}
+\]
+
+where P is just a diagonal difference matrix. 
+
+```{r}
+k <- 6
+P <- diff(diag(k), differences = 1)
+S <- t(P) %*% P
+S
+```
+
+P-Splines do require evenly spaced knots, but other than that they are very
+flexible.
+
+From `mgcv` these can be called with `s(x, bs = "ps", m = c(2, 3))` where m
+is the order for the basis and penalties, respectively. 
+
+### Adaptive Smoothers
+
+Sometimes we want the amount of smoothing to vary along with the x value. 
+
+From `mgcv` these can be called with `s(x, bs = "ad", m = c(2, 3))`
+
+
+
