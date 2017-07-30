@@ -148,9 +148,105 @@ is the order for the basis and penalties, respectively.
 
 ### Adaptive Smoothers
 
-Sometimes we want the amount of smoothing to vary along with the x value. 
+Sometimes we want the amount of smoothing to vary along with the $x$ value. We 
+can do this by adding weights to the differences penalties and letting those 
+weights vary smoothly with $x$.
 
-From `mgcv` these can be called with `s(x, bs = "ad", m = c(2, 3))`
+From `mgcv` these can be called with `s(x, bs = "ad", k = 40, m = 4)`.
 
+### SCOP Splines
 
+Can add shape constraints, aka monotonic functions. 
+
+## 5.4 Some Useful Smoother Theory
+
+### Identifiability Constraints
+
+Since each smooth can't have it's own intercept so we force the smooth terms to
+sum to 0 over the observed values of $x$. 
+
+### Effective Degrees of Freedom
+
+The effective degrees of freedom from a smooth is
+
+\[
+\sum_i (1 + \lambda D_{ii})^{-1}
+\]
+
+where $\lambda$ is the smoothing parameter and $D$ is a diagonal matrix of 
+eigen values of the $\mathbf{R^{-T}SR^{-1}}$. We can rewrite the degrees of
+freedom as the trace of $\mathbf{F}$ where
+
+\[
+\mathbf{F} = (\mathbf{X^TX} + \lambda \mathbf{S})^{-1}\mathbf{X^TX}
+\]
+
+So the degrees of freedom when there is no smoothing ($\lambda$ = 0) is just
+the number of coefficients in the model and the number of zero eigenvalues 
+of the penalty ($\lambda \rightarrow \infty$). 
+
+### Null Space Penalties
+
+Most smoothing penalties treat some null space of functions as completely smooth
+and therefore have zero penalty; A Cubic spline penalty ($\int f^{''}(x)^2 dx$) 
+is zero for any straight line (2nd deriviate is 0, so there is nothing to sum to
+penalize). So when the penalty approaches infinity the smoother does not tend to
+0 effect but tends to a straight line! So the penalty is not enough to remove a
+smooth term from the model altogether.
+
+We can alleviate this by adding an extra penalty which only penalizes functions 
+in the penalty null space (where a smoothing penatly has no effect). 
+
+The `select` argument in `gam` can be used to apply such penalties: 
+
+> If this is TRUE then gam can add an extra penalty to each term so that it can
+be penalized to zero. This means that the smoothing parameter estimation that is
+part of fitting can completely remove terms from the model. If the corresponding
+smoothing parameter is estimated as zero then the extra penalty has no effect.
+
+## 5.5 Isotropic Smoothing
+
+Isotropic smooths will produce identical predictions of the response variable
+under any rotations or reflections of covariates. Basically they are scale 
+invariant, so putting the smooth values in different units won't change the 
+smoothing effect of them; you'll get the same predictions if you use inches, 
+feet, meters, etc...
+
+### Thin Plate Regression Splines
+
+So far each smoothing basis has the following characteristics:
+
+1. You have to choose knot locations
+2. Each basis can only incorporate one variable
+3. It is not clear that they are better than any other basis
+
+#### Thin Plate Splines
+
+suppose we have a smooth function $g(x)$ we would like to estimate from $n$
+observations where $y_i = g(x_i) + \epsilon_i$. Thin plate splines estimate
+$g$ by finding the function $f$ that minimizes
+
+\[
+\|\mathbf{y - f}\|^2 + \lambda J_{md}(f)
+\]
+
+where $J_{md}(f)$ is a penalty function measuring the "wiggliness" of $f$. 
+
+The functions making up the function space, $\mathbf{f}$, are linear independent
+polynomials spanning the space of the polynomials in $\Re^d$. Also the first 
+couple functions (depending on the exact rank and dimension) span the space of
+functions for which $J_{md}(f)$ is 0, i.e., are in the null space of
+$J_{md}(f)$. For example if $m = d = 2$ then $\phi_1(x) = 1$, $\phi_2(x) = x_1$,
+and $\phi_3(x) = x_2$. 
+
+We do not have to define knots or select the basis functions for thin plate
+splines. Also we can use as many predictors as we like. 
+
+The problem is that these are very computationally costly; there are as many
+unkown parameters as data. So we want a low rank approximation of these splines
+
+#### Thin Plate Regression Splines
+
+Basically we want to truncate some of the wiggly components of the thin splate
+spline. 
 
