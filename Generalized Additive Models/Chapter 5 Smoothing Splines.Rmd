@@ -207,10 +207,7 @@ smoothing parameter is estimated as zero then the extra penalty has no effect.
 ## 5.5 Isotropic Smoothing
 
 Isotropic smooths will produce identical predictions of the response variable
-under any rotations or reflections of covariates. Basically they are scale 
-invariant, so putting the smooth values in different units won't change the 
-smoothing effect of them; you'll get the same predictions if you use inches, 
-feet, meters, etc...
+under any rotations or reflections of covariates. 
 
 ### Thin Plate Regression Splines
 
@@ -249,4 +246,41 @@ unkown parameters as data. So we want a low rank approximation of these splines
 
 Basically we want to truncate some of the wiggly components of the thin splate
 spline. 
+
+## 5.6 Tensor Product Smooth Interactions
+
+Tensor products are scale invariant. A thin plate spline works similar to a 
+flexible strip of and scales up to a flexible sheet. Tensor products just
+interlock multiple strips. 
+
+### Tensor Product Bases
+
+Tensor products, basically, set a smooth function of one covariate using a 
+sequence of knots. Then we let each parameter of that smooth vary with z as well
+by defining them as a smooth function of z. The same tensor product would be 
+found if we started with z instead of x. 
+
+These are scale invariate. 
+
+From `mgcv` these can be called with the `te` function, `te(x, y, z)`
+
+### ANOVA Decompositions of Smooths
+
+Suppose we want to test a smooth interaction
+
+\[
+f_1(x) + f_2(z) + f_3(x, z)
+\]
+
+we can build tensor product interaction smooths with sum-to-zero constraints so
+that any main effects are removed. 
+
+In `mgcv` these can be called with the `ti` function. 
+
+## 5.7 Isotropy Versus Scale Invariance
+
+Isotropic smooths are sensitive to linear rescaling of a single covariate. The 
+reason is that the thin plate spline attempts to achieve the same smoothness per
+unit change in every covariate, so when a unit changes scale the function starts
+to fall apart. Tensor product smooths are not affected by any re-scaling. 
 
