@@ -1,0 +1,162 @@
+---
+title: 'Chapter 7: GAMs in Practice'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width = 7, fig.height = 5, dpi = 200)
+```
+
+## 7.1 Specifying Smooths
+
+- `s()` is for univariate smooths, isotropic smooths of several variables, and
+random effects
+- `te()` is for tensor product smooths
+- `ti()` is for tensor product smooths with the main effects (and lower order
+interactions) removed
+- `t2()` alternate parameterization of tensor product smooths, useful for mixed
+modeling
+
+Some important arguments are:
+
+- `bs` type of basis
+- `k` basis dimension
+- `m` order of basis and penalty
+- `id` labels the smooth; smooths sharing a label will have the same smoothing
+parameter
+- `by` variable is either multiplied by this value or if it is a factor variable
+then a seperate curve is fit for each level of the factor
+
+When `by` is a factor we should also include the factor variable in the model 
+since the different curves will be subject to sum to zero constraints to make
+them identifiable. We still need to add an `id` argument to force each curve
+to share a smoothing parameter. For example `te(z, x, by = g, id = "a")` causes
+the smooths for each level of `g` to share the same smoothing parameter. 
+
+### How Smooth Specification Works
+
+Each smooth is just a set of model matrix columns and corresponding penalty.
+Each smooth can be constructed with `smoothCon` and used to predict with
+`PredictMat` even outside of `mgcv`.
+
+```{r}
+suppressPackageStartupMessages(library(mgcv))
+suppressPackageStartupMessages(library(MASS))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(dplyr))
+## Set up a smoother
+sm <- smoothCon(s(times, k = 10), data = mcycle, knots = NULL)[[1]]
+
+## Use it to fit a regression spline model
+beta <- coef(lm(mcycle$accel ~ sm$X - 1))
+
+## Get matrix mapping beta to spline prediction at `times`
+pred_df <- data_frame(times = seq(0, 60, length.out = 200))
+Xp <- PredictMat(sm, data = pred_df)
+pred_df$preds <- Xp %*% beta
+
+ggplot() + 
+  geom_point(aes(x = times, y = accel), data = mcycle) +
+  geom_line(aes(x = times, y = preds), data = pred_df) +
+  theme_bw() +
+  xlab("times") +
+  ylab("accel") +
+  ggtitle("Example of Smooth Construct")
+
+```
+
+## 7.2 Brain Imaging Example
+
+```{r}
+suppressPackageStartupMessages(library(gamair))
+data(brain)
+knitr::kable(head(brain))
+
+ggplot(aes(x = X, y = Y, fill = medFPQ), data = brain) + 
+  geom_raster() +
+  theme_bw() +
+  viridis::scale_fill_viridis() +
+  ggtitle("Visual of Brain Data")
+
+brain <- brain[brain$medFPQ > 5e-3, ]
+```
+
+We are going to model the `medFPQ` as a function of `X` and `Y`. The response
+data are strictly positive and slightly skewed so some transformation is 
+necessary, but we can check this with `gam.check`. 
+
+```{r}
+m0 <- gam(medFPQ ~ s(Y, X, k = 100), data = brain)
+gam.check(m0)
+```
+
+`gam.check` gives you the maximum possible degrees of freedom (`k'`), the actual
+effective degrees of freedom, the ratio of the model estimated scale parameter
+to an estimate based on differencing neighbouring residuals (`k-index`), and the
+p-value associated with this. 
+
+Also `gam.check` produces some residual plots. These show that the variance
+seems to increase with the fitted value, impying that our model is misspecified.
+
+If we assume that $var(y_i) \propto \mu_i^\beta$ where $\mu_i = E(y_i)$ then we
+can estimate $\beta$ using a simple regression:
+
+```{r}
+e <- residuals(m0)
+fitted_values <- fitted(m0)
+summary(lm(log(e^2) ~ log(fitted_values)))
+```
+
+$\beta$ is estimated to be around 2, so the variance increases with the square
+of the mean so the *gamma* distribution seems to fit. 
+
+```{r}
+m1 <- gam(medFPQ ^ .25 ~ s(Y, X, k = 100), data = brain)
+gam.check(m1)
+m2 <- gam(medFPQ ~ s(Y, X, k = 100), data = brain, family = Gamma(link = log))
+```
+
+This 4th root transformation has biased the data on our response scale
+
+```{r}
+print(c(actual_mean = mean(brain$medFPQ), 
+        fourth_mean = mean(fitted(m1)^4),
+        gamma_mean = mean(fitted(m2))))
+```
+
+The `vis.gam` function can display predictions from a gam fit:
+
+```{r}
+summary(m2)
+vis.gam(m2, plot.type = "contour")
+```
+
+Perhaps a simpler additive model like
+
+\[
+log(E(medFPQ_i)) = f_1(Y_i) + f_2(X_i), medFPQ_i \sim gamma
+\]
+
+would be better. 
+
+```{r}
+m3 <- gam(medFPQ ~ s(Y, k = 30) + s(X, k = 30), data = brain, family = Gamma(link = log))
+summary(m3)
+```
+
+The GCV score is higher (higher error), the percentage deviance explained is
+lower, and the AIC is higher for the additive model:
+
+```{r}
+AIC(m2, m3)
+```
+
+The additive model also produces various horizontal and vertical stripes instead
+of interacting smoothly:
+
+```{r}
+vis.gam(m3, plot.type = "contour")
+```
+
+
+
